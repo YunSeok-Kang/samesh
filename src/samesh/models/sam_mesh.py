@@ -47,6 +47,50 @@ def colormap_faces_mesh(mesh: Trimesh, face2label: dict[int, int], background=np
     return mesh
 
 
+def extract_mesh(mesh: Trimesh, face2label: dict[int, int], background=np.array([0, 0, 0])) -> Trimesh:
+    label_max = max(face2label.values())
+    print(f"Extracting {label_max} labels")
+    
+    for face, label in face2label.items(): 
+        print(f"face {face} label {label}") 
+        # mesh.visual.face_colors[face, :3] = palette[label]
+        # # faces_colored.add(face)
+        
+    return None
+
+def split_mesh_by_label(mesh: Trimesh, face2label: dict[int, int]) -> dict[int, Trimesh]:
+    """
+    원본 메시를 face2label 매핑을 기준으로 레이블별로 분리하여 서브 메시 딕셔너리를 반환.
+    실제 색상은 적용하지 않으며, 기하학적 정보만 분리함.
+    
+    매개변수:
+      mesh: 분리할 원본 Trimesh 객체.
+      face2label: 각 면의 인덱스를 키로, 해당 면에 부여할 레이블(정수)을 값으로 갖는 딕셔너리.
+    
+    반환값:
+      레이블을 키로, 해당 레이블의 면들로 구성된 서브 메시(Trimesh 객체)를 값으로 갖는 딕셔너리.
+    """
+    # 정점 복제: 각 면이 고유의 정점을 갖도록 변환
+    mesh_dup = duplicate_verts(mesh)
+    
+    # 레이블별로 면 인덱스 그룹화
+    label2faces = {}
+    for face_idx, label in face2label.items():
+        if label not in label2faces:
+            label2faces[label] = []
+        label2faces[label].append(face_idx)
+        
+    # 레이블별 서브 메시 생성
+    submeshes = {}
+    for label, faces in label2faces.items():
+        # Trimesh의 submesh 기능을 통해 면 인덱스 목록에 해당하는 서브 메시 추출
+        # faces를 담은 리스트를 전달하고, append=True로 합쳐서 단일 메시 객체로 생성
+        submesh = mesh_dup.submesh([faces], append=True, repair=False)
+        submeshes[label] = submesh
+        
+    return submeshes
+
+
 def norms_mask(norms: NumpyTensor['h w 3'], cam2world: NumpyTensor['4 4'], threshold=0.0) -> NumpyTensor['h w 3']:
     """
     Mask pixels that are directly facing camera
@@ -623,6 +667,16 @@ def segment_mesh(filename: Path | str, config: OmegaConf, visualize=False, exten
     # run sam grounded mesh and optionally visualize renders
     visualize_path = f'{config.output}/{filename.stem}_visualized' if visualize else None
     faces2label, _ = model(tmesh, visualize_path=visualize_path, target_labels=target_labels)
+    # print(type(faces2label)) # face2label은 dict. json 파일로 제공되는 것과 내용이 같음.
+    # print(faces2label)
+    
+    ##### ys exp #####
+    # extract_mesh(tmesh, faces2label)
+    splitted_meshes = split_mesh_by_label(tmesh, faces2label)
+    print(len(splitted_meshes))
+    for label, submesh in splitted_meshes.items():
+        print(label, submesh)
+        submesh.export(f'{config.output}/{filename.stem}_label_{label}.glb')
 
     # colormap and save mesh
     os.makedirs(config.output, exist_ok=True)
@@ -630,6 +684,10 @@ def segment_mesh(filename: Path | str, config: OmegaConf, visualize=False, exten
     tmesh_colored.export       (f'{config.output}/{filename.stem}_segmented.{extension}')
     json.dump(faces2label, open(f'{config.output}/{filename.stem}_face2label.json', 'w'))
     return tmesh_colored
+
+
+def segment_mesh_ys(filename: Path | str, config: OmegaConf, visualize=False, extension='glb', target_labels=None, texture=False) -> Trimesh:
+    pass
 
 
 if __name__ == '__main__':
